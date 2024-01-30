@@ -15,10 +15,10 @@
 //        faster than real-time mode, since it doesn't synch to audio):
 //
 //        extract and print
-//            > chuck --silent 2-extract.ck
+//            > chuck --silent feature-extract.ck
 //
 //        extract and write to FILE
-//            > chuck --silent 2-extract.ck:FILE
+//            > chuck --silent feature-extract.ck:FILE
 //
 // date: Spring 2023
 // authors: Ge Wang (https://ccrma.stanford.edu/~ge/)
@@ -52,21 +52,33 @@ SndBuf audioFile => FFT fft;
 FeatureCollector combo => blackhole;
 // add spectral feature: Centroid
 fft =^ Centroid centroid =^ combo;
+// chroma 
+fft =^ Chroma chroma =^ combo;
 // add spectral feature: Flux
 fft =^ Flux flux =^ combo;
-// add spectral feature: RMS
-fft =^ RMS rms =^ combo;
+// kurtosis
+fft =^ Kurtosis kurtosis =^ combo;
 // add spectral feature: MFCC
 fft =^ MFCC mfcc =^ combo;
+// add spectral feature: RMS
+fft =^ RMS rms =^ combo;
+// rolloff
+fft =^ RollOff roff50 =^ combo;
+fft =^ RollOff roff85 =^ combo;
+// zeroX
+audioFile => Flip flip =^ ZeroX zerox =^ combo;
 
 
 //---------------------------------------------------------------------
 // setting analysis parameters -- important for tuning your extraction
 //---------------------------------------------------------------------
 // set number of coefficients in MFCC (how many we get out)
-20 => mfcc.numCoeffs;
-// set number of mel filters in MFCC (internal to MFCC)
-10 => mfcc.numFilters;
+13 => mfcc.numCoeffs;
+// // set number of mel filters in MFCC (internal to MFCC)
+20 => mfcc.numFilters;
+// set rolloff percents
+.5 => roff50.percent;
+.85 => roff85.percent;
 
 // do one .upchuck() so FeatureCollector knows how many total dimension
 combo.upchuck();

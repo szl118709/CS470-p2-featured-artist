@@ -40,12 +40,12 @@ adc => FFT fft;
 FeatureCollector combo => blackhole;
 // add spectral feature: Centroid
 fft =^ Centroid centroid =^ combo;
-// add spectral feature: Flux
-fft =^ Flux flux =^ combo;
-// add spectral feature: RMS
-fft =^ RMS rms =^ combo;
-// add spectral feature: MFCC
-fft =^ MFCC mfcc =^ combo;
+// // add spectral feature: Flux
+// fft =^ Flux flux =^ combo;
+// // add spectral feature: RMS
+// fft =^ RMS rms =^ combo;
+// // add spectral feature: MFCC
+// fft =^ MFCC mfcc =^ combo;
 
 
 //-----------------------------------------------------------------------------

@@ -98,6 +98,7 @@ normalizeData();
 // shuffle the data
 shuffleData();
 // cross validation
+0 => float sum;
 for( 0 => int i; i < numFolds / numTestFolds; i++)
 {
     // prepare training and testing data
@@ -115,8 +116,9 @@ for( 0 => int i; i < numFolds / numTestFolds; i++)
     }
     // print accuracy
     chout <= "fold " + i + " accuracy: " + ( accuracy / testLabelsInt.size() ) <= IO.newline();
+    accuracy / testLabelsInt.size() +=> sum;
 }
-
+chout <= "average accuracy: " + ( sum / (numFolds / numTestFolds) ) <= IO.newline();
 
 //------------------------------------------------------------------------------
 // function: normalizeData()

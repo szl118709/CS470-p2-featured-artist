@@ -1,0 +1,17 @@
+issue: jazz.00054.wav does not open
+2023.1.21 | Ge Wang
+
+---
+jazz.00054.wav is about 100K smaller than all other files
+jazz.00054.raw in Audacity (little end, mono, 16-bit signed, 22050) is playable but has frequent clicks
+
+---
+Using GTZAN_Fixed
+https://www.kaggle.com/datasets/murataktan/gtzan-fixed
+Jazz.00054-fixed-v1.wav
+This appears to be a different file altogether
+
+---
+[WORKAROUND] 
+Converted Jazz.00054-fixed-v1.wav to 22050 mono, like other dataset files
+use this new file: Jazz.00054-fixed-v2.wav
