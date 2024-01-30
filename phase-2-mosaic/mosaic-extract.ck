@@ -10,7 +10,7 @@
 //        faster than real-time mode, since it doesn't synch to audio):
 //
 //        extract from INPUT and print
-//            > chuck --silent mosiac-extract.ck:INPUT
+//            > chuck --silent mosaic-extract.ck:INPUT
 //
 //        extract from INPUT audio file and write to OUTPUT model file
 //            > chuck --silent mosiac-extract:INPUT:OUTPUT
