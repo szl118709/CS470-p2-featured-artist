@@ -45,17 +45,41 @@ else
 // unit analyzer network: *** this must match the features in the features file
 //------------------------------------------------------------------------------
 // audio input into a FFT
-adc => FFT fft;
+SndBuf input => FFT fft;
+// adc => FFT fft;
 // a thing for collecting multiple features into one vector
 FeatureCollector combo => blackhole;
 // add spectral feature: Centroid
 fft =^ Centroid centroid =^ combo;
+// chroma 
+fft =^ Chroma chroma =^ combo;
 // add spectral feature: Flux
 fft =^ Flux flux =^ combo;
-// add spectral feature: RMS
-fft =^ RMS rms =^ combo;
+// kurtosis
+fft =^ Kurtosis kurtosis =^ combo;
 // add spectral feature: MFCC
 fft =^ MFCC mfcc =^ combo;
+// add spectral feature: RMS
+fft =^ RMS rms =^ combo;
+// rolloff
+fft =^ RollOff roff50 =^ combo;
+fft =^ RollOff roff85 =^ combo;
+
+
+//------------------------------------------------------------------------------
+// setting up our synthesized audio input to be analyzed and mosaic'ed
+//------------------------------------------------------------------------------
+// if we want to hear our audio input
+// input => Gain g => dac.left;
+// // add artificial delay for time alignment to mosaic output
+// 100::ms => delay.max => delay.delay;
+// // scale the volume
+// 0.2 => g.gain;
+
+// load sound (by default it will start playing from SndBuf)
+"data/Neurotica.wav"=> input.read;
+chout <= "Photosynthetic Fish, as driven by Neurotica by Polyphia"; 
+chout <= IO.newline();; chout.flush();
 
 
 //-----------------------------------------------------------------------------
@@ -77,7 +101,14 @@ combo.fvals().size() => int NUM_DIMENSIONS;
 // set window type and size
 Windowing.hann(fft.size()) => fft.window;
 // our hop size (how often to perform analysis)
-(2.0/3.0)::second => dur HOP;
+180.0 => float BPM;
+// prompt
+ConsoleInput in;
+string prompt;
+"Enter the desired BPM: " => prompt;
+in.prompt( prompt ) => now;
+Std.atoi(in.getLine()) => BPM;
+(60.0/BPM)::second => dur HOP;
 // how many frames to aggregate before averaging?
 // (this does not need to match extraction; might play with this number)
 10 => int NUM_FRAMES;
@@ -96,7 +127,8 @@ SndBuf buffers[NUM_VOICES]; ADSR envs[NUM_VOICES]; Pan2 pans[NUM_VOICES];
 for( int i; i < NUM_VOICES; i++ )
 {
     // connect audio
-    buffers[i] => envs[i] => pans[i] => dac;
+    // buffers[i] => envs[i] => pans[i] => dac;
+    buffers[i] => envs[i] /*=> pans[i]*/ => dac.right;
     // set chunk size (how to to load at a time)
     // this is important when reading from large files
     // if this is not set, SndBuf.read() will load the entire file immediately
@@ -191,11 +223,57 @@ knn.train( inFeatures, uids );
 // used to rotate sound buffers
 0 => int which;
 
+
+//------------------------------------------------------------------------------
+// wait on keyboard
+//------------------------------------------------------------------------------
+// which keyboard to open (chuck --probe to available)
+0 => int KB_DEVICE;
+Hid hid;
+HidMsg msg;
+
+// open keyboard (get device number from command line)
+if( !hid.openKeyboard( KB_DEVICE ) ) me.exit();
+<<< "keyboard '" + hid.name() + "' ready", "" >>>;
+
+spork ~ kb();
+
+fun void kb()
+{
+    // infinite event loop
+    while( true )
+    {
+        // wait on event
+        hid => now;
+        
+        // get one or more messages
+        while( hid.recv( msg ) )
+        {
+            // check for action type
+            if( msg.isButtonDown() ) // button down
+            {
+                // <<< "down:", msg.which, "(code)", msg.key, "(usb key)", msg.ascii, "(ascii)" >>>;
+                if( msg.ascii >= 49 && msg.ascii <= 57 ) // 1-9
+                {
+                    msg.ascii - 48 => NUM_FRAMES;
+                }
+                if ( msg.ascii ==48 ) // 0 
+                {
+                    10 => NUM_FRAMES;
+                }
+                HOP * NUM_FRAMES => dur EXTRACT_TIME;
+                chout <= IO.newline();
+            }
+        }
+    }
+}
+
+
 //------------------------------------------------------------------------------
 // SYNTHESIS!!
 // this function is meant to be sporked so it can be stacked in time
 //------------------------------------------------------------------------------
-fun void synthesize( int uid )
+fun void synthesize( int closest, int uid )
 {
     // get the buffer to use
     buffers[which] @=> SndBuf @ sound;
@@ -210,18 +288,21 @@ fun void synthesize( int uid )
     files[win.fileIndex] => string filename;
     // load into sound buffer
     filename => sound.read;
+    // playback rate
+    (BPM / 180.0) => sound.rate;
     // seek to the window start time
     ((win.windowTime::second)/samp) $ int => sound.pos;
 
     // print what we are about to play
-    chout <= "synthsizing window: ";
-    // print label
-    chout <= win.uid <= "["
-          <= win.fileIndex <= ":"
-          <= win.windowTime <= ":POSITION="
-          <= sound.pos() <= "]";
-    // endline
-    chout <= IO.newline();
+    // chout <= "closest: " <= closest <= " "; chout.flush();
+    // chout <= "synthsizing window: ";
+    // // print label
+    // chout <= win.uid <= "["
+    //       <= win.fileIndex <= ":"
+    //       <= win.windowTime <= ":POSITION="
+    //       <= sound.pos() <= "]";
+    // // endline
+    // chout <= IO.newline();
 
     // open the envelope, overlap add this into the overall audio
     envelope.keyOn();
@@ -256,9 +337,11 @@ while( true )
             combo.fval(d) => features[frame][d];
         }
         // advance time
+        chout <= frame+1 <= " "; chout.flush();
         HOP => now;
     }
-    
+    chout <= IO.newline(); chout.flush();
+
     // compute means for each coefficient across frames
     for( int d; d < NUM_DIMENSIONS; d++ )
     {
@@ -280,14 +363,13 @@ while( true )
     //-------------------------------------------------
     knn.search( featureMean, K, knnResult );
     
-    chout <= "closest: " <= knnResult[0] <= " "; chout.flush();
     // if silence, randomly synthesis something else
     if (knnResult[0] == SILENCE) {
-        spork ~ synthesize( Math.random2(0, numPoints-2) );
+        spork ~ synthesize( knnResult[0], Math.random2(0, numPoints-2) );
     }
     else {
         // SYNTHESIZE THIS
-        spork ~ synthesize( knnResult[Math.random2(0,knnResult.size()-1)] );
+        spork ~ synthesize( knnResult[0], knnResult[Math.random2(0,knnResult.size()-1)] );
     }
 }
 //------------------------------------------------------------------------------
@@ -320,7 +402,11 @@ fun FileIO loadFile( string filepath )
     
     string str;
     string line;
-    // read the first non-empty line
+    // TODO: let each file have a different bpm
+    // if (fio.more()) {
+    //     fio.readInt() => BPM
+    // }
+    // read the first non-empty line of features
     while( fio.more() )
     {
         // read each line

@@ -71,12 +71,20 @@ SndBuf audioFile => FFT fft;
 FeatureCollector combo => blackhole;
 // add spectral feature: Centroid
 fft =^ Centroid centroid =^ combo;
+// chroma 
+fft =^ Chroma chroma =^ combo;
 // add spectral feature: Flux
 fft =^ Flux flux =^ combo;
-// add spectral feature: RMS
-fft =^ RMS rms =^ combo;
+// kurtosis
+fft =^ Kurtosis kurtosis =^ combo;
 // add spectral feature: MFCC
 fft =^ MFCC mfcc =^ combo;
+// add spectral feature: RMS
+fft =^ RMS rms =^ combo;
+// rolloff
+fft =^ RollOff roff50 =^ combo;
+fft =^ RollOff roff85 =^ combo;
+
 
 
 //------------------------------------------------------------------------------
@@ -97,9 +105,8 @@ combo.fvals().size() => int NUM_DIMENSIONS;
 // set window type and size
 Windowing.hann(fft.size()) => fft.window;
 // our hop size (how often to perform analysis)
-180 => float TEMPO;
-60.0 / TEMPO => float BEAT_DUR;
-BEAT_DUR::second => dur HOP;
+180 => float BPM;
+(60.0 / BPM)::second => dur HOP;
 // how many frames to aggregate before averaging?
 5 => int NUM_FRAMES;
 
@@ -178,11 +185,13 @@ fun int extractTrajectory( string inputFilePath, string shortName, int fileIndex
     inputFilePath => audioFile.read;
     // file position (in seconds)
     int pos;
+    0 => int sample_index;
     // frame index
     int index;
     
     while( audioFile.pos() < audioFile.samples() )
     {
+        sample_index++;
         // remember the starting pos of each vector
         audioFile.pos() => int pos;
         // let one FFT-size of time pass (to buffer)
@@ -211,6 +220,7 @@ fun int extractTrajectory( string inputFilePath, string shortName, int fileIndex
         
         // print label name and endline
         out <= shortName <= " " <= (pos::samp)/second <= " ";
+        // out <= shortName <= " " <= (sample_index * NUM_FRAMES * (60.0 / BPM))<= " ";
 
         //-------------------------------------------------------------
         // average into a single feature vector per file
