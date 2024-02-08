@@ -2,15 +2,15 @@
 // name: mosaic-synth-mic.ck (v1.3)
 // desc: basic structure for a feature-based synthesizer
 //       this particular version uses microphone as live input
+//       and takes an optional min/max file for normalization
 //
 // version: need chuck version 1.4.2.1 or higher
 // sorting: part of ChAI (ChucK for AI)
 //
 // USAGE: run with INPUT model file
-//        > chuck mosaic-synth-mic.ck:file
-//
-// uncomment the next line to learn more about the KNN2 object:
-// KNN2.help();
+//        > chuck mosaic-synth-mic-norm.ck:INPUT:DRIVER:MINMAX:DRIVER_MINMAX
+// For Photosynthetic Fish, run 
+// chuck mosaic-synth-norm.ck:data/PF.txt:data/deep_blue.wav:data/PF-minmax.txt:data/DB-minmax.txt
 //
 // date: Spring 2024
 // authors: Ge Wang (https://ccrma.stanford.edu/~ge/)
@@ -18,18 +18,34 @@
 //          Samantha Liu
 //------------------------------------------------------------------------------
 
-// input: pre-extracted model file
+// INPUT: pre-extracted model file; does not need to be normalized
 string FEATURES_FILE;
+// DRIVER: audio file
+string DRIVER_AUDIO_FILE;
+// MINMAX: (optional) file containing the min/max to normalize/map to for each dimension
+string MINMAX_FILE;
+// DRIVER_MINMAX: (optional, but has to exist if MINMAX exists) file containing min/max for the driver
+string DRIVER_MINMAX_FILE;
 // if have arguments, override filename
 if( me.args() > 0 )
 {
     me.arg(0) => FEATURES_FILE;
+    me.arg(1) => DRIVER_AUDIO_FILE;
+    // more?
+    if( me.args() > 2 )
+    {
+        me.arg(2) => MINMAX_FILE;
+        me.arg(3) => DRIVER_MINMAX_FILE;
+    }
 }
 else
 {
     // print usage
-    <<< "usage: chuck mosaic-synth-mic.ck:INPUT", "" >>>;
+    <<< "usage: chuck mosaic-synth-mic.ck:INPUT:DRIVER:MINMAX:DRIVER_MINMAX", "" >>>;
     <<< " |- INPUT: model file (.txt) containing extracted feature vectors", "" >>>;
+    <<< " |- DRIVER: driver file (.wav) of audio", "" >>>;
+    <<< " |- MINMAX: min/max file (.txt) containing min/max for each dimension", "" >>>;
+    <<< " |- DRIVER_MINMAX: min/max file (.txt) for the driver", "" >>>;
 }
 //------------------------------------------------------------------------------
 // expected model file format; each VALUE is a feature value
@@ -40,6 +56,16 @@ else
 // ...
 // filePath windowStartTime VALUE VALUE ... VALUE
 //------------------------------------------------------------------------------
+
+//------------------------------------------------------------------------------
+// expected min/max file format: each line is the min and max for a dimension
+//------------------------------------------------------------------------------
+// MIN1 MAX1
+// MIN2 MAX2
+// ...
+// MIN_N MAX_N
+//------------------------------------------------------------------------------
+
 
 
 //------------------------------------------------------------------------------
@@ -67,27 +93,11 @@ fft =^ RollOff roff50 =^ combo;
 fft =^ RollOff roff85 =^ combo;
 
 
-//------------------------------------------------------------------------------
-// setting up our synthesized audio input to be analyzed and mosaic'ed
-//------------------------------------------------------------------------------
-// if we want to hear our audio input
-// input => Gain g => dac.left;
-// // add artificial delay for time alignment to mosaic output
-// 100::ms => delay.max => delay.delay;
-// // scale the volume
-// 0.2 => g.gain;
-
-// load sound (by default it will start playing from SndBuf)
-"data/deep_blue.wav"=> input.read;
-chout <= "Photosynthetic Fish, as driven by Neurotica by Polyphia"; 
-chout <= IO.newline();; chout.flush();
-
-
 //-----------------------------------------------------------------------------
 // setting analysis parameters -- also should match what was used during extration
 //-----------------------------------------------------------------------------
 // set number of coefficients in MFCC (how many we get out)
-// 13 is a commonly used value; using less here for printing
+// 13 is a commonly used value
 20 => mfcc.numCoeffs;
 // set number of mel filters in MFCC
 10 => mfcc.numFilters;
@@ -116,6 +126,21 @@ Std.atoi(in.getLine()) => BPM;
 // how much time to aggregate features for each file
 HOP * NUM_FRAMES => dur EXTRACT_TIME;
 
+//------------------------------------------------------------------------------
+// setting up our synthesized audio input to be analyzed and mosaic'ed
+//------------------------------------------------------------------------------
+// if we want to hear our audio input
+input => Gain g => Delay delay => dac.left;
+// add artificial delay for time alignment to mosaic output
+EXTRACT_TIME + HOP=> delay.max => delay.delay;
+// scale the volume
+0.5 => g.gain;
+
+// load sound (by default it will start playing from SndBuf)
+DRIVER_AUDIO_FILE => input.read;
+chout <= "Photosynthetic Fish, as driven by Deep Blue"; 
+chout <= IO.newline();; chout.flush();
+
 
 //------------------------------------------------------------------------------
 // unit generator network: for real-time sound synthesis
@@ -129,7 +154,8 @@ for( int i; i < NUM_VOICES; i++ )
 {
     // connect audio
     // buffers[i] => envs[i] => pans[i] => dac;
-    buffers[i] => envs[i] /*=> pans[i]*/ => dac.right;
+    buffers[i] => envs[i] /*=> pans[i]*/ => Delay out_delay => dac.right;
+    HOP => out_delay.max => out_delay.delay;
     // set chunk size (how to to load at a time)
     // this is important when reading from large files
     // if this is not set, SndBuf.read() will load the entire file immediately
@@ -158,6 +184,24 @@ if( numCoeffs != NUM_DIMENSIONS )
     <<< "[error] expecting:", NUM_DIMENSIONS, "dimensions; but features file has:", numCoeffs >>>;
     // stop
     me.exit();
+}
+
+false => int DO_NORMALIZE; // whether to normalize
+float fishMin[NUM_DIMENSIONS]; // array reference for mins
+float fishMax[NUM_DIMENSIONS]; // array reference for maxs
+// load min/max for each dimension
+if( loadMinMaxFile( MINMAX_FILE, fishMin, fishMax ) )
+{
+    // set flag
+    true => DO_NORMALIZE;
+}
+
+float driverMin[NUM_DIMENSIONS]; // array reference for mins
+float driverMax[NUM_DIMENSIONS]; // array reference for maxs
+if( !loadMinMaxFile( DRIVER_MINMAX_FILE, driverMin, driverMax ) )
+{
+    // error
+    <<< "[error] failed to load driver minmax from", DRIVER_MINMAX_FILE >>>;
 }
 
 
@@ -192,8 +236,8 @@ int filename2state[0];
 float inFeatures[numPoints][numCoeffs];
 // generate array of unique indices
 int uids[numPoints]; for( int i; i < numPoints; i++ ) i => uids[i];
-// uid of the silent sample; when this sample is detected randomly play stuff
-numPoints - 1 => int SILENCE;
+// // uid of the silent sample; when this sample is detected randomly play stuff
+// numPoints - 1 => int SILENCE;
 
 // use this for new input
 float features[NUM_FRAMES][numCoeffs];
@@ -220,9 +264,37 @@ int knnResult[K];
 // knn train
 knn.train( inFeatures, uids );
 
-
 // used to rotate sound buffers
 0 => int which;
+
+
+//------------------------------------------------------------------------------
+// processing stuff
+//------------------------------------------------------------------------------
+// destination host name
+"localhost" => string hostname;
+// destination port number
+12000 => int port;
+
+// sender object
+OscOut xmit;
+
+// aim the transmitter at destination
+xmit.dest( hostname, port );
+
+// send OSC message: current file index and startTime, uniquely identifying a window
+fun void sendWindow( int curr_beat, float num_beats )
+{
+    // start the message...
+    xmit.start( "/mosaic/window" );
+    
+    // add int argument
+    curr_beat => xmit.add;
+    // add float argument
+    num_beats => xmit.add;
+    // send it
+    xmit.send();
+}
 
 
 //------------------------------------------------------------------------------
@@ -308,7 +380,13 @@ fun void synthesize( int closest, int uid )
     // open the envelope, overlap add this into the overall audio
     envelope.keyOn();
     // wait
-    (EXTRACT_TIME*3)-envelope.releaseTime() => now;
+    for( int frame; frame < NUM_FRAMES; frame++ )
+    {
+        // chout <= frame+1 <= " "; chout.flush();
+        HOP => now;
+        sendWindow(frame+1, NUM_FRAMES * 1.0);
+    }
+    (EXTRACT_TIME*2)-envelope.releaseTime() => now;
     // start the release
     envelope.keyOff();
     // wait
@@ -338,7 +416,7 @@ while( true )
             combo.fval(d) => features[frame][d];
         }
         // advance time
-        chout <= frame+1 <= " "; chout.flush();
+        // chout <= frame+1 <= " "; chout.flush();
         HOP => now;
     }
     chout <= IO.newline(); chout.flush();
@@ -358,26 +436,40 @@ while( true )
         NUM_FRAMES /=> featureMean[d];
     }
     
+    // normalize
+    if( DO_NORMALIZE ) normalize( featureMean );
+    
     //-------------------------------------------------
     // search using KNN2; results filled in knnResults,
     // which should the indices of k nearest points
     //-------------------------------------------------
     knn.search( featureMean, K, knnResult );
-    
-    // if silence, randomly synthesis something else
-    if (knnResult[0] == SILENCE) {
-        spork ~ synthesize( knnResult[0], Math.random2(0, numPoints-2) );
-    }
-    else {
-        // SYNTHESIZE THIS
-        spork ~ synthesize( knnResult[0], knnResult[Math.random2(0,knnResult.size()-1)] );
-    }
+    spork ~ synthesize( knnResult[0], knnResult[Math.random2(0,knnResult.size()-1)] );
 }
 //------------------------------------------------------------------------------
 // end of real-time similiarity retrieval loop
 //------------------------------------------------------------------------------
 
 
+//------------------------------------------------------------------------------'
+// function: normalize a vector to the min/max for each dimension
+//------------------------------------------------------------------------------
+fun void normalize( float v[] )
+{
+    // make sure we are on the level
+    if( v.size() != fishMin.size() )
+    {
+        <<< "normalize(): dimension mismatch -- expecting", v.size(), "but min/max has", fishMin.size() >>>;
+        return;
+    }
+    
+    for( int i; i < v.size(); i++ )
+    {
+        // map with the ability go beyond the min/max bound
+        // map the driver input (driverMin, driverMax) to (fishMin, fishMax)
+        Math.map( v[i], driverMin[i], driverMax[i], fishMin[i], fishMax[i] ) => v[i];
+    }
+}
 
 
 //------------------------------------------------------------------------------
@@ -403,10 +495,7 @@ fun FileIO loadFile( string filepath )
     
     string str;
     string line;
-    // TODO: let each file have a different bpm
-    // if (fio.more()) {
-    //     fio.readInt() => BPM
-    // }
+
     // read the first non-empty line of features
     while( fio.more() )
     {
@@ -449,6 +538,67 @@ fun FileIO loadFile( string filepath )
     
     // done for now
     return fio;
+}
+
+
+//------------------------------------------------------------------------------
+// function: load data file
+//------------------------------------------------------------------------------
+fun int loadMinMaxFile( string filepath, float mins[], float maxs[] )
+{
+    // if empty, return false with no error since min/max file is optional
+    if( filepath == "" ) return false;
+    
+    // output
+    <<< "normalizing to min/max:", filepath >>>;
+
+    // load data
+    FileIO fio;
+    if( !fio.open( filepath, FileIO.READ ) )
+    {
+        // error
+        <<< "cannot open min/max file:", filepath >>>;
+        // close
+        fio.close();
+        // return
+        return false;
+    }
+    
+    string line;
+    int d;
+    // a string tokenizer
+    StringTokenizer tokenizer;
+
+    // read the first non-empty line
+    while( fio.more() )
+    {
+        // read each line
+        fio.readLine().trim() => line;
+        // check if empty line
+        if( line != "" )
+        {
+            // set to last non-empty line
+            tokenizer.set( line );
+            // set to two values
+            if( tokenizer.more() )
+            {
+                // min
+                tokenizer.next() => Std.atof => mins[d];
+                // more?
+                if( tokenizer.more() )
+                {
+                    // max
+                    tokenizer.next() => Std.atof => maxs[d];
+                }
+            }
+            
+            // increment
+            d++;
+        }
+    }
+    
+    // done for now
+    return true;
 }
 
 

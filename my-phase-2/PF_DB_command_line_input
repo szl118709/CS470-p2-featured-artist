@@ -1,0 +1,9 @@
+For Photosynthetic Fish as driven by Deep Blue, run
+
+chuck --silent mosaic-extract.ck:data/PF.wav:data/PF.txt 
+chuck --silent mosaic-extract.ck:data/deep_blue.wav:data/DB.txt 
+
+chuck normalize.ck:data/PF.txt:data/PF-normalized.txt:data/PF-minmax.txt
+chuck normalize.ck:data/DB.txt:data/DB-normalized.txt:data/DB-minmax.txt
+
+chuck mosaic-synth-norm.ck:data/PF.txt:data/deep_blue.wav:data/PF-minmax.txt:data/DB-minmax.txt

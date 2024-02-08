@@ -14,6 +14,9 @@
 //
 //        extract from INPUT audio file and write to OUTPUT model file
 //            > chuck --silent mosaic-extract:INPUT:OUTPUT
+// For Photosynthetic Fish, run
+// chuck --silent mosaic-extract.ck:data/PF.wav:data/PF.txt 
+// chuck --silent mosaic-extract.ck:data/deep_blue.wav:data/DB.txt 
 //
 // INPUT:  an audio file to be extracted (.wav)
 //         a text file listing audio file to be extracted (.txt)
@@ -27,9 +30,10 @@
 //         ...
 //         ------------------------------------------------------------
 //
-// date: Spring 2023
+// date: Spring 2024
 // authors: Ge Wang (https://ccrma.stanford.edu/~ge/)
 //          Yikai Li
+//          Samantha Liu
 //------------------------------------------------------------------------------
 
 // input audio file
@@ -87,7 +91,7 @@ fft =^ RollOff roff85 =^ combo;
 
 
 
-//------------------------------------------------------------------------------
+//--------------------------0----------------------------------------------------
 // analysis parameters -- useful for tuning your extraction
 //------------------------------------------------------------------------------
 // set number of coefficients in MFCC (how many we get out)
@@ -220,7 +224,6 @@ fun int extractTrajectory( string inputFilePath, string shortName, int fileIndex
         
         // print label name and endline
         out <= shortName <= " " <= (pos::samp)/second <= " ";
-        // out <= shortName <= " " <= (sample_index * NUM_FRAMES * (60.0 / BPM))<= " ";
 
         //-------------------------------------------------------------
         // average into a single feature vector per file
